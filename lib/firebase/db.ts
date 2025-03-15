@@ -1,4 +1,12 @@
-import { collection, getDocs, query, where } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  setDoc,
+  doc,
+  Timestamp,
+  query,
+  where,
+} from "firebase/firestore";
 import { db } from "./config";
 import { format, parse, isValid } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -61,5 +69,31 @@ export async function getAvailableTimes(meetingId: string, dateId: string) {
   } catch (error) {
     console.error("Error fetching available times:", error);
     return [];
+  }
+}
+
+// 새 미팅 추가 함수
+export async function addMeeting(meetingId: string, dates: Date[]) {
+  try {
+    // 미팅 문서 생성
+    await setDoc(doc(db, "meetings", meetingId), {
+      createdAt: Timestamp.now(),
+      status: "active",
+    });
+
+    // 선택된 날짜들 추가
+    for (const date of dates) {
+      const dateId = date.toISOString().split("T")[0]; // YYYY-MM-DD 형식
+
+      await setDoc(doc(db, "meetings", meetingId, "available_dates", dateId), {
+        date: Timestamp.fromDate(date),
+        isAvailable: true,
+      });
+    }
+
+    return meetingId;
+  } catch (error) {
+    console.error("미팅 생성 오류:", error);
+    throw error;
   }
 }
