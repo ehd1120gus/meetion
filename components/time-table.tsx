@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { getAvailableTimes } from "@/lib/firebase/db"; // 이 줄을 추가
 
 type TimeSlot = {
   id: string;
@@ -9,7 +10,12 @@ type TimeSlot = {
   isSelected: boolean;
 };
 
-export default function TimeTable() {
+interface TimeTableProps {
+  meetingId?: string; // Firebase ID
+  dateId?: string; // 선택된 날짜 ID
+}
+
+export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
   // 시간 슬롯 생성 (9시부터 21시, 30분 간격)
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>(() => {
     const slots: TimeSlot[] = [];
@@ -136,6 +142,39 @@ export default function TimeTable() {
     selectionMode,
     originalTimeSlots,
   ]);
+
+  // Firebase에서 시간대 가져오기
+  useEffect(() => {
+    async function loadTimes() {
+      if (!meetingId || !dateId) return;
+
+      try {
+        // Firebase에서 가능한 시간 목록 가져오기
+        const availableTimes = await getAvailableTimes(meetingId, dateId);
+
+        // 시간 슬롯 상태 업데이트
+        if (availableTimes.length > 0) {
+          setTimeSlots((prev) => {
+            // 기존 시간 슬롯에 가용성 정보 병합
+            return prev.map((slot) => {
+              const matchingTime = availableTimes.find(
+                (t) => t.time === slot.time
+              );
+              return {
+                ...slot,
+                isSelected: matchingTime?.isSelected || false,
+                isAvailable: !!matchingTime, // 서버에서 가져온 시간대만 가능하도록
+              };
+            });
+          });
+        }
+      } catch (err) {
+        console.error("Failed to load available times:", err);
+      }
+    }
+
+    loadTimes();
+  }, [meetingId, dateId]);
 
   // 마우스 이벤트 핸들러
   const handleMouseDown = (index: number, e: React.MouseEvent) => {
