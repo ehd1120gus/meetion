@@ -61,6 +61,26 @@ export default function TimeTable() {
   // 이전 드래그 범위 추적
   const prevRangeRef = useRef<{ start: number; end: number } | null>(null);
 
+  // 터치 이벤트 발생 여부 추적 플래그 추가
+  const isTouchEventRef = useRef(false);
+  const touchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 단일 슬롯 토글 함수 추가
+  const toggleSlot = (index: number) => {
+    setTimeSlots((prev) => {
+      const newTimeSlots = [...prev];
+      newTimeSlots[index].isSelected = !newTimeSlots[index].isSelected;
+
+      console.log(
+        `${newTimeSlots[index].display} ${
+          newTimeSlots[index].isSelected ? "선택됨" : "선택 해제됨"
+        }`
+      );
+
+      return newTimeSlots;
+    });
+  };
+
   // 드래그 방향 계산
   const updateDragDirection = (clientY: number) => {
     if (lastPositionRef.current === null) {
@@ -119,23 +139,22 @@ export default function TimeTable() {
 
   // 마우스 이벤트 핸들러
   const handleMouseDown = (index: number, e: React.MouseEvent) => {
-    // 드래그 시작 시 현재 슬롯의 상태와 반대 모드로 설정
+    // 터치 이벤트에 의해 트리거된 마우스 이벤트인지 확인
+    if (isTouchEventRef.current) {
+      console.log("터치 이벤트 후 마우스 이벤트 무시");
+      return;
+    }
+
     console.log("mouse down");
     const newMode = !timeSlots[index].isSelected ? "select" : "deselect";
-
-    // 드래그 시작 전 원본 상태 저장
     setOriginalTimeSlots(timeSlots.map((slot) => slot.isSelected));
-
     setSelectionMode(newMode);
     setIsDragging(true);
     setDragStart(index);
     setCurrentIndex(index);
     prevRangeRef.current = null;
-
-    // 초기 위치 저장
     lastPositionRef.current = e.clientY;
 
-    // 로그 출력
     console.log(
       `${timeSlots[index].display} ${
         newMode === "select" ? "선택 시작" : "해제 시작"
@@ -144,6 +163,9 @@ export default function TimeTable() {
   };
 
   const handleMouseEnter = (index: number, e: React.MouseEvent) => {
+    // 터치 이벤트에 의해 트리거된 마우스 이벤트인지 확인
+    if (isTouchEventRef.current) return;
+
     console.log("mouse enter");
     if (isDragging) {
       setCurrentIndex(index);
@@ -151,8 +173,22 @@ export default function TimeTable() {
     }
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e: React.MouseEvent | null = null) => {
+    // 터치 이벤트에 의해 트리거된 마우스 이벤트인지 확인
+    if (isTouchEventRef.current) return;
+
     console.log("mouse up");
+
+    // 클릭 동작 감지 (드래그 없이 같은 요소에서 mousedown과 mouseup이 발생)
+    if (
+      isDragging &&
+      dragStart !== null &&
+      currentIndex !== null &&
+      dragStart === currentIndex
+    ) {
+      toggleSlot(dragStart);
+    }
+
     setIsDragging(false);
     setDragStart(null);
     setCurrentIndex(null);
@@ -164,25 +200,27 @@ export default function TimeTable() {
 
   // 터치 이벤트 핸들러
   const handleTouchStart = (index: number, e: React.TouchEvent) => {
+    // 터치 이벤트 플래그 설정
+    isTouchEventRef.current = true;
+
+    // 이전 타임아웃 취소
+    if (touchTimeoutRef.current) {
+      clearTimeout(touchTimeoutRef.current);
+    }
+
     console.log("touch start");
-    // 터치 시작 시 현재 슬롯의 상태와 반대 모드로 설정
     const newMode = !timeSlots[index].isSelected ? "select" : "deselect";
-
-    // 드래그 시작 전 원본 상태 저장
     setOriginalTimeSlots(timeSlots.map((slot) => slot.isSelected));
-
     setSelectionMode(newMode);
     setTouchStarted(true);
     setDragStart(index);
     setCurrentIndex(index);
     prevRangeRef.current = null;
 
-    // 초기 위치 저장
     if (e.touches.length > 0) {
       lastPositionRef.current = e.touches[0].clientY;
     }
 
-    // 로그 출력
     console.log(
       `${timeSlots[index].display} ${
         newMode === "select" ? "선택 시작" : "해제 시작"
@@ -204,8 +242,19 @@ export default function TimeTable() {
     }
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = (e: React.TouchEvent | TouchEvent) => {
     console.log("touch end");
+
+    // 클릭(탭) 동작 감지
+    if (
+      touchStarted &&
+      dragStart !== null &&
+      currentIndex !== null &&
+      dragStart === currentIndex
+    ) {
+      toggleSlot(dragStart);
+    }
+
     setTouchStarted(false);
     setDragStart(null);
     setCurrentIndex(null);
@@ -213,27 +262,32 @@ export default function TimeTable() {
     prevRangeRef.current = null;
     setDragDirection(null);
     lastPositionRef.current = null;
+
+    // 터치 이벤트 플래그 리셋 (일정 시간 후)
+    touchTimeoutRef.current = setTimeout(() => {
+      isTouchEventRef.current = false;
+    }, 500); // 500ms 동안 마우스 이벤트 무시
   };
 
   // 전역 이벤트 리스너 등록
   useEffect(() => {
-    const handleGlobalMouseUp = () => {
-      if (isDragging) {
-        handleMouseUp();
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      if (isDragging && !isTouchEventRef.current) {
+        handleMouseUp(null);
       }
     };
 
-    // 터치 이벤트를 수동 설정으로 등록
     const touchMoveHandler = (e: TouchEvent) => {
       if (touchStarted) {
-        e.preventDefault(); // 스크롤 방지
+        e.preventDefault();
         handleTouchMove(e);
       }
     };
 
-    // 터치 종료 이벤트
-    const touchEndHandler = () => {
-      handleTouchEnd();
+    const touchEndHandler = (e: TouchEvent) => {
+      if (touchStarted) {
+        handleTouchEnd(e);
+      }
     };
 
     document.addEventListener("mouseup", handleGlobalMouseUp);
@@ -252,21 +306,40 @@ export default function TimeTable() {
         timeTableRef.current.removeEventListener("touchmove", touchMoveHandler);
       }
       document.removeEventListener("touchend", touchEndHandler);
+
+      // 타임아웃 클리어
+      if (touchTimeoutRef.current) {
+        clearTimeout(touchTimeoutRef.current);
+      }
     };
   }, [isDragging, touchStarted]);
 
+  // 컴포넌트 언마운트시 타임아웃 클리어
+  useEffect(() => {
+    return () => {
+      if (touchTimeoutRef.current) {
+        clearTimeout(touchTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // 슬롯 클래스 계산 함수
   const getSlotClassName = (index: number, isSelected: boolean) => {
-    // 현재 드래그 범위인지 확인
+    // 현재 드래그 범위인지 확인 (선택 표시를 위해 유지)
     const isInDragRange =
       dragStart !== null &&
       currentIndex !== null &&
       index >= Math.min(dragStart, currentIndex) &&
       index <= Math.max(dragStart, currentIndex);
 
+    // 현재 마우스/터치가 위치한 슬롯인지 확인 (쫀득한 효과용)
+    const isCurrentSlot = currentIndex === index;
+
     // 쫀득한 효과를 위한 클래스
     let elasticClass = "";
-    if ((isDragging || touchStarted) && isInDragRange) {
+
+    // 현재 드래그/터치 중이고 현재 슬롯에만 쫀득한 효과 적용
+    if ((isDragging || touchStarted) && isCurrentSlot) {
       // 드래그 방향에 관계없이 세로로 늘어나고 가로로 줄어드는 효과 적용
       elasticClass = "transform scale-y-110 scale-x-95";
 
@@ -280,13 +353,13 @@ export default function TimeTable() {
 
     // 미니멀 디자인과 형광 초록색 적용
     return `w-full py-3 flex flex-col items-center justify-center 
-    ${
-      isSelected
-        ? "bg-lime-400 text-black font-medium"
-        : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
-    }
-    rounded-md cursor-pointer transition-all duration-100 ease-in-out ${elasticClass}
-    shadow-sm border-0`;
+  ${
+    isSelected
+      ? "bg-lime-400 text-black font-medium"
+      : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+  }
+  rounded-md cursor-pointer transition-all duration-100 ease-in-out ${elasticClass}
+  shadow-sm border-0`;
   };
 
   // 타임슬롯을 두 열로 균등하게 분할
@@ -296,7 +369,7 @@ export default function TimeTable() {
   const rightColumn = timeSlots.slice(halfLength);
 
   return (
-    <div className="w-full" onMouseUp={handleMouseUp}>
+    <div className="w-full">
       <div ref={timeTableRef} className="grid grid-cols-2 gap-4">
         {/* 왼쪽 열 */}
         <div className="space-y-3">
@@ -307,7 +380,9 @@ export default function TimeTable() {
               className={getSlotClassName(index, slot.isSelected)}
               onMouseDown={(e) => handleMouseDown(index, e)}
               onMouseEnter={(e) => handleMouseEnter(index, e)}
+              onMouseUp={(e) => handleMouseUp(e)}
               onTouchStart={(e) => handleTouchStart(index, e)}
+              onTouchEnd={(e) => handleTouchEnd(e)}
             >
               <span className="text-base font-medium select-none">
                 {slot.display}
@@ -325,7 +400,9 @@ export default function TimeTable() {
               className={getSlotClassName(index + halfLength, slot.isSelected)}
               onMouseDown={(e) => handleMouseDown(index + halfLength, e)}
               onMouseEnter={(e) => handleMouseEnter(index + halfLength, e)}
+              onMouseUp={(e) => handleMouseUp(e)}
               onTouchStart={(e) => handleTouchStart(index + halfLength, e)}
+              onTouchEnd={(e) => handleTouchEnd(e)}
             >
               <span className="text-base font-medium select-none">
                 {slot.display}
