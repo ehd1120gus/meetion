@@ -49,11 +49,33 @@ export default function TimeTable() {
   // 드래그 시작 시점의 원본 타임슬롯 상태
   const [originalTimeSlots, setOriginalTimeSlots] = useState<boolean[]>([]);
 
+  // 드래그 방향 상태
+  const [dragDirection, setDragDirection] = useState<"up" | "down" | null>(
+    null
+  );
+  const lastPositionRef = useRef<number | null>(null);
+
   // refs
   const timeTableRef = useRef<HTMLDivElement>(null);
 
   // 이전 드래그 범위 추적
   const prevRangeRef = useRef<{ start: number; end: number } | null>(null);
+
+  // 드래그 방향 계산
+  const updateDragDirection = (clientY: number) => {
+    if (lastPositionRef.current === null) {
+      lastPositionRef.current = clientY;
+      return;
+    }
+
+    if (clientY < lastPositionRef.current) {
+      setDragDirection("up");
+    } else if (clientY > lastPositionRef.current) {
+      setDragDirection("down");
+    }
+
+    lastPositionRef.current = clientY;
+  };
 
   // 드래그된 범위 계산 및 타임슬롯 상태 업데이트
   useEffect(() => {
@@ -96,8 +118,9 @@ export default function TimeTable() {
   ]);
 
   // 마우스 이벤트 핸들러
-  const handleMouseDown = (index: number) => {
+  const handleMouseDown = (index: number, e: React.MouseEvent) => {
     // 드래그 시작 시 현재 슬롯의 상태와 반대 모드로 설정
+    console.log("mouse down");
     const newMode = !timeSlots[index].isSelected ? "select" : "deselect";
 
     // 드래그 시작 전 원본 상태 저장
@@ -109,6 +132,9 @@ export default function TimeTable() {
     setCurrentIndex(index);
     prevRangeRef.current = null;
 
+    // 초기 위치 저장
+    lastPositionRef.current = e.clientY;
+
     // 로그 출력
     console.log(
       `${timeSlots[index].display} ${
@@ -117,22 +143,28 @@ export default function TimeTable() {
     );
   };
 
-  const handleMouseEnter = (index: number) => {
+  const handleMouseEnter = (index: number, e: React.MouseEvent) => {
+    console.log("mouse enter");
     if (isDragging) {
       setCurrentIndex(index);
+      updateDragDirection(e.clientY);
     }
   };
 
   const handleMouseUp = () => {
+    console.log("mouse up");
     setIsDragging(false);
     setDragStart(null);
     setCurrentIndex(null);
     setSelectionMode(null);
     prevRangeRef.current = null;
+    setDragDirection(null);
+    lastPositionRef.current = null;
   };
 
   // 터치 이벤트 핸들러
-  const handleTouchStart = (index: number) => {
+  const handleTouchStart = (index: number, e: React.TouchEvent) => {
+    console.log("touch start");
     // 터치 시작 시 현재 슬롯의 상태와 반대 모드로 설정
     const newMode = !timeSlots[index].isSelected ? "select" : "deselect";
 
@@ -145,6 +177,11 @@ export default function TimeTable() {
     setCurrentIndex(index);
     prevRangeRef.current = null;
 
+    // 초기 위치 저장
+    if (e.touches.length > 0) {
+      lastPositionRef.current = e.touches[0].clientY;
+    }
+
     // 로그 출력
     console.log(
       `${timeSlots[index].display} ${
@@ -154,9 +191,12 @@ export default function TimeTable() {
   };
 
   const handleTouchMove = (e: TouchEvent) => {
+    console.log("touch move");
     if (!touchStarted || !timeTableRef.current) return;
 
     const touch = e.touches[0];
+    updateDragDirection(touch.clientY);
+
     const element = document.elementFromPoint(touch.clientX, touch.clientY);
     if (element?.getAttribute("data-index")) {
       const index = parseInt(element.getAttribute("data-index") || "0", 10);
@@ -165,11 +205,14 @@ export default function TimeTable() {
   };
 
   const handleTouchEnd = () => {
+    console.log("touch end");
     setTouchStarted(false);
     setDragStart(null);
     setCurrentIndex(null);
     setSelectionMode(null);
     prevRangeRef.current = null;
+    setDragDirection(null);
+    lastPositionRef.current = null;
   };
 
   // 전역 이벤트 리스너 등록
@@ -212,6 +255,40 @@ export default function TimeTable() {
     };
   }, [isDragging, touchStarted]);
 
+  // 슬롯 클래스 계산 함수
+  const getSlotClassName = (index: number, isSelected: boolean) => {
+    // 현재 드래그 범위인지 확인
+    const isInDragRange =
+      dragStart !== null &&
+      currentIndex !== null &&
+      index >= Math.min(dragStart, currentIndex) &&
+      index <= Math.max(dragStart, currentIndex);
+
+    // 쫀득한 효과를 위한 클래스
+    let elasticClass = "";
+    if ((isDragging || touchStarted) && isInDragRange) {
+      // 드래그 방향에 관계없이 세로로 늘어나고 가로로 줄어드는 효과 적용
+      elasticClass = "transform scale-y-110 scale-x-95";
+
+      // 드래그 방향에 따라 약간의 이동 효과만 다르게 적용
+      if (dragDirection === "up") {
+        elasticClass += " -translate-y-[1px]";
+      } else if (dragDirection === "down") {
+        elasticClass += " translate-y-[1px]";
+      }
+    }
+
+    // 미니멀 디자인과 형광 초록색 적용
+    return `w-full py-3 flex flex-col items-center justify-center 
+    ${
+      isSelected
+        ? "bg-lime-400 text-black font-medium"
+        : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+    }
+    rounded-md cursor-pointer transition-all duration-100 ease-in-out ${elasticClass}
+    shadow-sm border-0`;
+  };
+
   // 타임슬롯을 두 열로 균등하게 분할
   const slotCount = timeSlots.length;
   const halfLength = Math.floor(slotCount / 2);
@@ -227,16 +304,14 @@ export default function TimeTable() {
             <div
               key={slot.id}
               data-index={index}
-              className={`w-full py-4 flex flex-col items-center justify-center border select-none ${
-                slot.isSelected
-                  ? "bg-blue-600 text-white"
-                  : "bg-zinc-800 text-zinc-300"
-              } rounded-lg cursor-pointer transition-colors`}
-              onMouseDown={() => handleMouseDown(index)}
-              onMouseEnter={() => handleMouseEnter(index)}
-              onTouchStart={() => handleTouchStart(index)}
+              className={getSlotClassName(index, slot.isSelected)}
+              onMouseDown={(e) => handleMouseDown(index, e)}
+              onMouseEnter={(e) => handleMouseEnter(index, e)}
+              onTouchStart={(e) => handleTouchStart(index, e)}
             >
-              <span className="text-base font-medium">{slot.display}</span>
+              <span className="text-base font-medium select-none">
+                {slot.display}
+              </span>
             </div>
           ))}
         </div>
@@ -247,16 +322,14 @@ export default function TimeTable() {
             <div
               key={slot.id}
               data-index={index + halfLength}
-              className={`w-full py-4 flex flex-col items-center justify-center border select-none ${
-                slot.isSelected
-                  ? "bg-blue-600 text-white"
-                  : "bg-zinc-800 text-zinc-300"
-              } rounded-lg cursor-pointer transition-colors`}
-              onMouseDown={() => handleMouseDown(index + halfLength)}
-              onMouseEnter={() => handleMouseEnter(index + halfLength)}
-              onTouchStart={() => handleTouchStart(index + halfLength)}
+              className={getSlotClassName(index + halfLength, slot.isSelected)}
+              onMouseDown={(e) => handleMouseDown(index + halfLength, e)}
+              onMouseEnter={(e) => handleMouseEnter(index + halfLength, e)}
+              onTouchStart={(e) => handleTouchStart(index + halfLength, e)}
             >
-              <span className="text-base font-medium">{slot.display}</span>
+              <span className="text-base font-medium select-none">
+                {slot.display}
+              </span>
             </div>
           ))}
         </div>
