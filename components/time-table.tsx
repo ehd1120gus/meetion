@@ -169,6 +169,11 @@ export default function TimeTable() {
     console.log("mouse enter");
     if (isDragging) {
       setCurrentIndex(index);
+
+      // 마우스 위치에 따른 상대적 Y 위치 계산
+      const relY = calculateRelativeYPosition(e.clientY, index);
+      setRelativeYPosition(relY);
+
       updateDragDirection(e.clientY);
     }
   };
@@ -239,6 +244,10 @@ export default function TimeTable() {
     if (element?.getAttribute("data-index")) {
       const index = parseInt(element.getAttribute("data-index") || "0", 10);
       setCurrentIndex(index);
+
+      // 터치 위치에 따른 상대적 Y 위치 계산
+      const relY = calculateRelativeYPosition(touch.clientY, index);
+      setRelativeYPosition(relY);
     }
   };
 
@@ -335,31 +344,21 @@ export default function TimeTable() {
     // 현재 마우스/터치가 위치한 슬롯인지 확인 (쫀득한 효과용)
     const isCurrentSlot = currentIndex === index;
 
-    // 쫀득한 효과를 위한 클래스
-    let elasticClass = "";
+    // 효과 적용을 위한 클래스 (실제 효과는 인라인 스타일로 적용)
+    const effectClass =
+      (isDragging || touchStarted) && currentIndex === index
+        ? "elastic-effect"
+        : "";
 
-    // 현재 드래그/터치 중이고 현재 슬롯에만 쫀득한 효과 적용
-    if ((isDragging || touchStarted) && isCurrentSlot) {
-      // 드래그 방향에 관계없이 세로로 늘어나고 가로로 줄어드는 효과 적용
-      elasticClass = "transform scale-y-110 scale-x-95";
-
-      // 드래그 방향에 따라 약간의 이동 효과만 다르게 적용
-      if (dragDirection === "up") {
-        elasticClass += " -translate-y-[1px]";
-      } else if (dragDirection === "down") {
-        elasticClass += " translate-y-[1px]";
-      }
-    }
-
-    // 미니멀 디자인과 형광 초록색 적용
+    // 기본 클래스 반환
     return `w-full py-3 flex flex-col items-center justify-center 
-  ${
-    isSelected
-      ? "bg-lime-400 text-black font-medium"
-      : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
-  }
-  rounded-md cursor-pointer transition-all duration-100 ease-in-out ${elasticClass}
-  shadow-sm border-0`;
+      ${
+        isSelected
+          ? "bg-lime-400 text-black font-medium"
+          : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+      }
+      rounded-md cursor-pointer transition-all duration-100 ease-in-out ${effectClass}
+      shadow-sm border-0`;
   };
 
   // 타임슬롯을 두 열로 균등하게 분할
@@ -368,6 +367,107 @@ export default function TimeTable() {
   const leftColumn = timeSlots.slice(0, halfLength);
   const rightColumn = timeSlots.slice(halfLength);
 
+  // 현재 마우스/터치의 슬롯 내 상대적 Y 위치 (-1.0 ~ 1.0, 중앙이 0)
+  // 위쪽으로 갈수록 -1에 가까워지고, 아래쪽으로 갈수록 1에 가까워짐
+  const [relativeYPosition, setRelativeYPosition] = useState<number>(0);
+
+  // 슬롯 요소 refs 저장 배열
+  const slotRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // 초기화 시 슬롯 개수만큼 ref 배열 생성
+  useEffect(() => {
+    slotRefs.current = Array(timeSlots.length).fill(null);
+  }, [timeSlots.length]);
+
+  // 마우스/터치 위치에 따른 상대적 Y 위치 계산 함수
+  const calculateRelativeYPosition = (clientY: number, index: number) => {
+    const slotElement = slotRefs.current[index];
+    if (!slotElement) return 0;
+
+    const rect = slotElement.getBoundingClientRect();
+    const slotMiddleY = rect.top + rect.height / 2;
+
+    // 슬롯 중앙에서 얼마나 떨어져 있는지 계산 (-1 ~ 1)
+    // 위쪽은 음수, 아래쪽은 양수
+    const relY = (clientY - slotMiddleY) / (rect.height / 2);
+
+    // 값 범위 제한 (-1 ~ 1)
+    return Math.max(-1, Math.min(1, relY));
+  };
+
+  // 슬롯 스타일 계산 함수 수정
+  const getSlotStyle = (index: number, isSelected: boolean) => {
+    const isCurrentSlot = currentIndex === index;
+    let style: React.CSSProperties = {};
+
+    if ((isDragging || touchStarted) && isCurrentSlot) {
+      // 세로 스케일 - 선형 변화 (0.95 ~ 1.1)
+      const yScaleFactor = 0.95 + Math.abs(relativeYPosition) * 0.15;
+
+      // 가로 스케일은 세로와 반비례 (1.05 ~ 0.9)
+      const xScaleFactor = 1.05 - Math.abs(relativeYPosition) * 0.15;
+
+      // 변환 적용 - 부드러운 탄성 효과 위해 변경
+      style.transform = `scaleY(${yScaleFactor.toFixed(
+        3
+      )}) scaleX(${xScaleFactor.toFixed(3)})`;
+
+      // 드래그 방향에 따른 미세한 이동 추가
+      if (dragDirection === "up") {
+        style.transform += " translateY(-2px)";
+      } else if (dragDirection === "down") {
+        style.transform += " translateY(2px)";
+      }
+
+      // 트랜지션 설정 개선
+      style.transition = "transform 80ms cubic-bezier(0.25, 0.1, 0.25, 1.5)";
+    }
+
+    return style;
+  };
+
+  // handleMouseMove 함수 추가 - handleMouseEnter와 비슷하지만 현재 슬롯 내에서의 이동 처리
+  const handleMouseMove = (index: number, e: React.MouseEvent) => {
+    // 터치 이벤트에 의해 트리거된 마우스 이벤트인지 확인
+    if (isTouchEventRef.current) return;
+
+    // 현재 드래그 중이고 현재 슬롯에 있을 때만 처리
+    if (isDragging && currentIndex === index) {
+      // 마우스 위치에 따른 상대적 Y 위치 계산
+      const relY = calculateRelativeYPosition(e.clientY, index);
+      setRelativeYPosition(relY);
+
+      // 드래그 방향 업데이트
+      updateDragDirection(e.clientY);
+    }
+  };
+
+  // 슬롯 ref 초기화 개선
+  // timeSlots 배열이 변경될 때마다 초기화
+  useEffect(() => {
+    // 적절한 크기로 배열 새로 생성 (기존 요소 유지)
+    const newRefs = Array(timeSlots.length).fill(null);
+
+    // 기존 refs 복사 (배열 크기가 달라졌을 경우 대비)
+    if (slotRefs.current.length > 0) {
+      slotRefs.current.forEach((ref, idx) => {
+        if (idx < newRefs.length) {
+          newRefs[idx] = ref;
+        }
+      });
+    }
+
+    slotRefs.current = newRefs;
+  }, [timeSlots.length]);
+
+  // 안전한 ref 할당 함수 추가
+  const setSlotRef = (index: number, element: HTMLDivElement | null) => {
+    if (index >= 0 && index < timeSlots.length) {
+      slotRefs.current[index] = element;
+    }
+  };
+
+  // JSX 수정 - ref와 mousemove 이벤트 추가
   return (
     <div className="w-full">
       <div ref={timeTableRef} className="grid grid-cols-2 gap-4">
@@ -376,10 +476,13 @@ export default function TimeTable() {
           {leftColumn.map((slot, index) => (
             <div
               key={slot.id}
+              ref={(el) => setSlotRef(index, el)}
               data-index={index}
               className={getSlotClassName(index, slot.isSelected)}
+              style={getSlotStyle(index, slot.isSelected)}
               onMouseDown={(e) => handleMouseDown(index, e)}
               onMouseEnter={(e) => handleMouseEnter(index, e)}
+              onMouseMove={(e) => handleMouseMove(index, e)}
               onMouseUp={(e) => handleMouseUp(e)}
               onTouchStart={(e) => handleTouchStart(index, e)}
               onTouchEnd={(e) => handleTouchEnd(e)}
@@ -396,10 +499,13 @@ export default function TimeTable() {
           {rightColumn.map((slot, index) => (
             <div
               key={slot.id}
+              ref={(el) => setSlotRef(index + halfLength, el)}
               data-index={index + halfLength}
               className={getSlotClassName(index + halfLength, slot.isSelected)}
+              style={getSlotStyle(index + halfLength, slot.isSelected)}
               onMouseDown={(e) => handleMouseDown(index + halfLength, e)}
               onMouseEnter={(e) => handleMouseEnter(index + halfLength, e)}
+              onMouseMove={(e) => handleMouseMove(index + halfLength, e)}
               onMouseUp={(e) => handleMouseUp(e)}
               onTouchStart={(e) => handleTouchStart(index + halfLength, e)}
               onTouchEnd={(e) => handleTouchEnd(e)}
