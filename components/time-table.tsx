@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { getAvailableTimes } from "@/lib/firebase/db"; // 이 줄을 추가
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { getAvailableTimes } from "@/lib/firebase/db";
 
 type TimeSlot = {
   id: string;
@@ -15,11 +15,167 @@ interface TimeTableProps {
   dateId?: string; // 선택된 날짜 ID
 }
 
+// 슬롯 컴포넌트 추출하여 재사용성 높이기
+interface TimeSlotItemProps {
+  index: number;
+  slot: TimeSlot;
+  onSetRef: (index: number, el: HTMLDivElement | null) => void;
+  className: string;
+  style: React.CSSProperties;
+  onMouseDown: (index: number, e: React.MouseEvent) => void;
+  onMouseEnter: (index: number, e: React.MouseEvent) => void;
+  onMouseMove: (index: number, e: React.MouseEvent) => void;
+  onMouseUp: (e: React.MouseEvent) => void;
+  onTouchStart: (index: number, e: React.TouchEvent) => void;
+  onTouchEnd: (e: React.TouchEvent) => void;
+}
+
+// 슬롯 아이템 컴포넌트
+const TimeSlotItem = ({
+  index,
+  slot,
+  onSetRef,
+  className,
+  style,
+  onMouseDown,
+  onMouseEnter,
+  onMouseMove,
+  onMouseUp,
+  onTouchStart,
+  onTouchEnd,
+}: TimeSlotItemProps) => (
+  <div
+    key={slot.id}
+    ref={(el) => onSetRef(index, el)}
+    data-index={index}
+    className={className}
+    style={style}
+    onMouseDown={(e) => onMouseDown(index, e)}
+    onMouseEnter={(e) => onMouseEnter(index, e)}
+    onMouseMove={(e) => onMouseMove(index, e)}
+    onMouseUp={(e) => onMouseUp(e)}
+    onTouchStart={(e) => onTouchStart(index, e)}
+    onTouchEnd={(e) => onTouchEnd(e)}
+  >
+    <span className="text-sm font-medium select-none">
+      {slot.time.split(":")[1]}
+    </span>
+  </div>
+);
+
+// 시간 열 컴포넌트
+interface TimeColumnProps {
+  hours: number[];
+  timeSlots: TimeSlot[];
+  getSlotClassName: (index: number, isSelected: boolean) => string;
+  getSlotStyle: (index: number, isSelected: boolean) => React.CSSProperties;
+  setSlotRef: (index: number, el: HTMLDivElement | null) => void;
+  handleMouseDown: (index: number, e: React.MouseEvent) => void;
+  handleMouseEnter: (index: number, e: React.MouseEvent) => void;
+  handleMouseMove: (index: number, e: React.MouseEvent) => void;
+  handleMouseUp: (e: React.MouseEvent) => void;
+  handleTouchStart: (index: number, e: React.TouchEvent) => void;
+  handleTouchEnd: (e: React.TouchEvent) => void;
+}
+
+const TimeColumn = ({
+  hours,
+  timeSlots,
+  getSlotClassName,
+  getSlotStyle,
+  setSlotRef,
+  handleMouseDown,
+  handleMouseEnter,
+  handleMouseMove,
+  handleMouseUp,
+  handleTouchStart,
+  handleTouchEnd,
+}: TimeColumnProps) => (
+  <div>
+    {hours.map((hour) => {
+      const hourString = hour.toString().padStart(2, "0");
+
+      // 이 시간대의 슬롯 찾기
+      const slot00Index = timeSlots.findIndex(
+        (s) => s.time === `${hourString}:00`
+      );
+      const slot30Index = timeSlots.findIndex(
+        (s) => s.time === `${hourString}:30`
+      );
+
+      // 이 시간대에 표시할 슬롯이 없으면 건너뜀
+      if (slot00Index === -1 && slot30Index === -1) {
+        return null;
+      }
+
+      return (
+        <div key={`hour-${hour}`} className="mb-2">
+          <div className="flex">
+            {/* 시간 레이블 */}
+            <div className="w-10 py-3 text-right pr-3 text-zinc-400 font-medium">
+              {hour}
+            </div>
+
+            {/* 슬롯 영역 */}
+            <div className="flex-1 space-y-2">
+              {/* 00분 슬롯 */}
+              {slot00Index !== -1 && (
+                <TimeSlotItem
+                  index={slot00Index}
+                  slot={timeSlots[slot00Index]}
+                  onSetRef={setSlotRef}
+                  className={getSlotClassName(
+                    slot00Index,
+                    timeSlots[slot00Index].isSelected
+                  )}
+                  style={getSlotStyle(
+                    slot00Index,
+                    timeSlots[slot00Index].isSelected
+                  )}
+                  onMouseDown={handleMouseDown}
+                  onMouseEnter={handleMouseEnter}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onTouchStart={handleTouchStart}
+                  onTouchEnd={handleTouchEnd}
+                />
+              )}
+
+              {/* 30분 슬롯 */}
+              {slot30Index !== -1 && (
+                <TimeSlotItem
+                  index={slot30Index}
+                  slot={timeSlots[slot30Index]}
+                  onSetRef={setSlotRef}
+                  className={getSlotClassName(
+                    slot30Index,
+                    timeSlots[slot30Index].isSelected
+                  )}
+                  style={getSlotStyle(
+                    slot30Index,
+                    timeSlots[slot30Index].isSelected
+                  )}
+                  onMouseDown={handleMouseDown}
+                  onMouseEnter={handleMouseEnter}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onTouchStart={handleTouchStart}
+                  onTouchEnd={handleTouchEnd}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+);
+
 export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
-  // 시간 슬롯 생성 (9시부터 21시, 30분 간격)
+  // 시간 슬롯 생성 (9시부터 22시, 30분 간격)
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>(() => {
     const slots: TimeSlot[] = [];
-    for (let hour = 9; hour <= 21; hour++) {
+    for (let hour = 9; hour <= 22; hour++) {
       for (let min = 0; min < 60; min += 30) {
         const time = `${hour.toString().padStart(2, "0")}:${min
           .toString()
@@ -47,48 +203,33 @@ export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
   const [selectionMode, setSelectionMode] = useState<
     "select" | "deselect" | null
   >(null);
-
-  // 드래그 시작 위치 및 현재 드래그 위치
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
-
-  // 드래그 시작 시점의 원본 타임슬롯 상태
   const [originalTimeSlots, setOriginalTimeSlots] = useState<boolean[]>([]);
-
-  // 드래그 방향 상태
   const [dragDirection, setDragDirection] = useState<"up" | "down" | null>(
     null
   );
-  const lastPositionRef = useRef<number | null>(null);
+  const [relativeYPosition, setRelativeYPosition] = useState<number>(0);
 
-  // refs
+  // Refs
   const timeTableRef = useRef<HTMLDivElement>(null);
-
-  // 이전 드래그 범위 추적
+  const lastPositionRef = useRef<number | null>(null);
   const prevRangeRef = useRef<{ start: number; end: number } | null>(null);
-
-  // 터치 이벤트 발생 여부 추적 플래그 추가
   const isTouchEventRef = useRef(false);
   const touchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const slotRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  // 단일 슬롯 토글 함수 추가
-  const toggleSlot = (index: number) => {
+  // 슬롯 토글 함수
+  const toggleSlot = useCallback((index: number) => {
     setTimeSlots((prev) => {
       const newTimeSlots = [...prev];
       newTimeSlots[index].isSelected = !newTimeSlots[index].isSelected;
-
-      console.log(
-        `${newTimeSlots[index].display} ${
-          newTimeSlots[index].isSelected ? "선택됨" : "선택 해제됨"
-        }`
-      );
-
       return newTimeSlots;
     });
-  };
+  }, []);
 
   // 드래그 방향 계산
-  const updateDragDirection = (clientY: number) => {
+  const updateDragDirection = useCallback((clientY: number) => {
     if (lastPositionRef.current === null) {
       lastPositionRef.current = clientY;
       return;
@@ -101,9 +242,193 @@ export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
     }
 
     lastPositionRef.current = clientY;
-  };
+  }, []);
 
-  // 드래그된 범위 계산 및 타임슬롯 상태 업데이트
+  // 마우스/터치 위치에 따른 상대적 Y 위치 계산 함수
+  const calculateRelativeYPosition = useCallback(
+    (clientY: number, index: number) => {
+      const slotElement = slotRefs.current[index];
+      if (!slotElement) return 0;
+
+      const rect = slotElement.getBoundingClientRect();
+      const slotMiddleY = rect.top + rect.height / 2;
+      const relY = (clientY - slotMiddleY) / (rect.height / 2);
+      return Math.max(-1, Math.min(1, relY));
+    },
+    []
+  );
+
+  // 슬롯 클래스 계산 함수
+  const getSlotClassName = useCallback(
+    (index: number, isSelected: boolean) => {
+      const isInDragRange =
+        dragStart !== null &&
+        currentIndex !== null &&
+        index >= Math.min(dragStart, currentIndex) &&
+        index <= Math.max(dragStart, currentIndex);
+
+      const isCurrentSlot = currentIndex === index;
+
+      const effectClass =
+        (isDragging || touchStarted) && currentIndex === index
+          ? "elastic-effect"
+          : "";
+
+      return `w-full py-3 flex flex-col items-center justify-center 
+      ${
+        isSelected
+          ? "bg-lime-400 text-black font-medium"
+          : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+      }
+      rounded-md cursor-pointer transition-all duration-100 ease-in-out ${effectClass}
+      shadow-sm border-0`;
+    },
+    [isDragging, touchStarted, dragStart, currentIndex]
+  );
+
+  // 슬롯 스타일 계산 함수
+  const getSlotStyle = useCallback(
+    (index: number, isSelected: boolean): React.CSSProperties => {
+      const isCurrentSlot = currentIndex === index;
+      let style: React.CSSProperties = {};
+
+      if ((isDragging || touchStarted) && isCurrentSlot) {
+        const yScaleFactor = 0.95 + Math.abs(relativeYPosition) * 0.15;
+        const xScaleFactor = 1.05 - Math.abs(relativeYPosition) * 0.15;
+
+        style.transform = `scaleY(${yScaleFactor.toFixed(
+          3
+        )}) scaleX(${xScaleFactor.toFixed(3)})`;
+
+        if (dragDirection === "up") {
+          style.transform += " translateY(-2px)";
+        } else if (dragDirection === "down") {
+          style.transform += " translateY(2px)";
+        }
+
+        style.transition = "transform 80ms cubic-bezier(0.25, 0.1, 0.25, 1.5)";
+      }
+
+      return style;
+    },
+    [isDragging, touchStarted, currentIndex, relativeYPosition, dragDirection]
+  );
+
+  // 이벤트 핸들러들
+  const handleMouseDown = useCallback(
+    (index: number, e: React.MouseEvent) => {
+      if (isTouchEventRef.current) return;
+
+      const newMode = !timeSlots[index].isSelected ? "select" : "deselect";
+      setOriginalTimeSlots(timeSlots.map((slot) => slot.isSelected));
+      setSelectionMode(newMode);
+      setIsDragging(true);
+      setDragStart(index);
+      setCurrentIndex(index);
+      prevRangeRef.current = null;
+      lastPositionRef.current = e.clientY;
+    },
+    [timeSlots]
+  );
+
+  const handleMouseEnter = useCallback(
+    (index: number, e: React.MouseEvent) => {
+      if (isTouchEventRef.current || !isDragging) return;
+
+      setCurrentIndex(index);
+      const relY = calculateRelativeYPosition(e.clientY, index);
+      setRelativeYPosition(relY);
+      updateDragDirection(e.clientY);
+    },
+    [isDragging, calculateRelativeYPosition, updateDragDirection]
+  );
+
+  const handleMouseMove = useCallback(
+    (index: number, e: React.MouseEvent) => {
+      if (isTouchEventRef.current || !isDragging || currentIndex !== index)
+        return;
+
+      const relY = calculateRelativeYPosition(e.clientY, index);
+      setRelativeYPosition(relY);
+      updateDragDirection(e.clientY);
+    },
+    [isDragging, currentIndex, calculateRelativeYPosition, updateDragDirection]
+  );
+
+  const handleMouseUp = useCallback(
+    (e: React.MouseEvent | null = null) => {
+      if (isTouchEventRef.current) return;
+
+      if (
+        isDragging &&
+        dragStart !== null &&
+        currentIndex !== null &&
+        dragStart === currentIndex
+      ) {
+        toggleSlot(dragStart);
+      }
+
+      setIsDragging(false);
+      setDragStart(null);
+      setCurrentIndex(null);
+      setSelectionMode(null);
+      prevRangeRef.current = null;
+      setDragDirection(null);
+      lastPositionRef.current = null;
+    },
+    [isDragging, dragStart, currentIndex, toggleSlot]
+  );
+
+  const handleTouchStart = useCallback(
+    (index: number, e: React.TouchEvent) => {
+      isTouchEventRef.current = true;
+
+      if (touchTimeoutRef.current) {
+        clearTimeout(touchTimeoutRef.current);
+      }
+
+      const newMode = !timeSlots[index].isSelected ? "select" : "deselect";
+      setOriginalTimeSlots(timeSlots.map((slot) => slot.isSelected));
+      setSelectionMode(newMode);
+      setTouchStarted(true);
+      setDragStart(index);
+      setCurrentIndex(index);
+      prevRangeRef.current = null;
+
+      if (e.touches.length > 0) {
+        lastPositionRef.current = e.touches[0].clientY;
+      }
+    },
+    [timeSlots]
+  );
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent | TouchEvent) => {
+      if (
+        touchStarted &&
+        dragStart !== null &&
+        currentIndex !== null &&
+        dragStart === currentIndex
+      ) {
+        toggleSlot(dragStart);
+      }
+
+      setTouchStarted(false);
+      setDragStart(null);
+      setCurrentIndex(null);
+      setSelectionMode(null);
+      prevRangeRef.current = null;
+      setDragDirection(null);
+      lastPositionRef.current = null;
+
+      touchTimeoutRef.current = setTimeout(() => {
+        isTouchEventRef.current = false;
+      }, 500);
+    },
+    [touchStarted, dragStart, currentIndex, toggleSlot]
+  );
+
+  // 드래그된 범위 계산 및 타임슬롯 상태 업데이트 useEffect 수정
   useEffect(() => {
     if (
       (isDragging || touchStarted) &&
@@ -115,23 +440,33 @@ export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
       const start = Math.min(dragStart, currentIndex);
       const end = Math.max(dragStart, currentIndex);
 
-      // 새로운 타임슬롯 상태 생성
-      const newTimeSlots = [...timeSlots];
+      // 이전에 처리한 범위와 동일하면 업데이트 건너뜀
+      if (
+        prevRangeRef.current?.start === start &&
+        prevRangeRef.current?.end === end
+      ) {
+        return;
+      }
 
-      // 모든 슬롯을 원래 상태로 초기화
-      newTimeSlots.forEach((slot, idx) => {
-        // 드래그 범위 내의 슬롯만 선택 또는 해제 상태 적용
-        if (idx >= start && idx <= end) {
-          newTimeSlots[idx].isSelected = selectionMode === "select";
-        } else {
-          // 범위 밖의 슬롯은 드래그 시작 전 원본 상태로 복원
-          newTimeSlots[idx].isSelected = originalTimeSlots[idx];
-        }
+      // 함수형 업데이트를 사용하여 무한 루프 방지
+      setTimeSlots((prevSlots) => {
+        // 새로운 타임슬롯 상태 생성
+        const newTimeSlots = [...prevSlots];
+
+        // 모든 슬롯을 원래 상태로 초기화
+        newTimeSlots.forEach((slot, idx) => {
+          // 드래그 범위 내의 슬롯만 선택 또는 해제 상태 적용
+          if (idx >= start && idx <= end) {
+            newTimeSlots[idx].isSelected = selectionMode === "select";
+          } else {
+            // 범위 밖의 슬롯은 드래그 시작 전 원본 상태로 복원
+            newTimeSlots[idx].isSelected = originalTimeSlots[idx];
+          }
+        });
+
+        return newTimeSlots;
       });
 
-      setTimeSlots(newTimeSlots);
-
-      // 현재 범위 저장
       prevRangeRef.current = { start, end };
     }
   }, [
@@ -141,6 +476,7 @@ export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
     currentIndex,
     selectionMode,
     originalTimeSlots,
+    // timeSlots 제거
   ]);
 
   // Firebase에서 시간대 가져오기
@@ -149,13 +485,10 @@ export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
       if (!meetingId || !dateId) return;
 
       try {
-        // Firebase에서 가능한 시간 목록 가져오기
         const availableTimes = await getAvailableTimes(meetingId, dateId);
 
-        // 시간 슬롯 상태 업데이트
         if (availableTimes.length > 0) {
           setTimeSlots((prev) => {
-            // 기존 시간 슬롯에 가용성 정보 병합
             return prev.map((slot) => {
               const matchingTime = availableTimes.find(
                 (t) => t.time === slot.time
@@ -163,7 +496,7 @@ export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
               return {
                 ...slot,
                 isSelected: matchingTime?.isSelected || false,
-                isAvailable: !!matchingTime, // 서버에서 가져온 시간대만 가능하도록
+                isAvailable: !!matchingTime,
               };
             });
           });
@@ -176,147 +509,6 @@ export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
     loadTimes();
   }, [meetingId, dateId]);
 
-  // 마우스 이벤트 핸들러
-  const handleMouseDown = (index: number, e: React.MouseEvent) => {
-    // 터치 이벤트에 의해 트리거된 마우스 이벤트인지 확인
-    if (isTouchEventRef.current) {
-      console.log("터치 이벤트 후 마우스 이벤트 무시");
-      return;
-    }
-
-    console.log("mouse down");
-    const newMode = !timeSlots[index].isSelected ? "select" : "deselect";
-    setOriginalTimeSlots(timeSlots.map((slot) => slot.isSelected));
-    setSelectionMode(newMode);
-    setIsDragging(true);
-    setDragStart(index);
-    setCurrentIndex(index);
-    prevRangeRef.current = null;
-    lastPositionRef.current = e.clientY;
-
-    console.log(
-      `${timeSlots[index].display} ${
-        newMode === "select" ? "선택 시작" : "해제 시작"
-      }`
-    );
-  };
-
-  const handleMouseEnter = (index: number, e: React.MouseEvent) => {
-    // 터치 이벤트에 의해 트리거된 마우스 이벤트인지 확인
-    if (isTouchEventRef.current) return;
-
-    console.log("mouse enter");
-    if (isDragging) {
-      setCurrentIndex(index);
-
-      // 마우스 위치에 따른 상대적 Y 위치 계산
-      const relY = calculateRelativeYPosition(e.clientY, index);
-      setRelativeYPosition(relY);
-
-      updateDragDirection(e.clientY);
-    }
-  };
-
-  const handleMouseUp = (e: React.MouseEvent | null = null) => {
-    // 터치 이벤트에 의해 트리거된 마우스 이벤트인지 확인
-    if (isTouchEventRef.current) return;
-
-    console.log("mouse up");
-
-    // 클릭 동작 감지 (드래그 없이 같은 요소에서 mousedown과 mouseup이 발생)
-    if (
-      isDragging &&
-      dragStart !== null &&
-      currentIndex !== null &&
-      dragStart === currentIndex
-    ) {
-      toggleSlot(dragStart);
-    }
-
-    setIsDragging(false);
-    setDragStart(null);
-    setCurrentIndex(null);
-    setSelectionMode(null);
-    prevRangeRef.current = null;
-    setDragDirection(null);
-    lastPositionRef.current = null;
-  };
-
-  // 터치 이벤트 핸들러
-  const handleTouchStart = (index: number, e: React.TouchEvent) => {
-    // 터치 이벤트 플래그 설정
-    isTouchEventRef.current = true;
-
-    // 이전 타임아웃 취소
-    if (touchTimeoutRef.current) {
-      clearTimeout(touchTimeoutRef.current);
-    }
-
-    console.log("touch start");
-    const newMode = !timeSlots[index].isSelected ? "select" : "deselect";
-    setOriginalTimeSlots(timeSlots.map((slot) => slot.isSelected));
-    setSelectionMode(newMode);
-    setTouchStarted(true);
-    setDragStart(index);
-    setCurrentIndex(index);
-    prevRangeRef.current = null;
-
-    if (e.touches.length > 0) {
-      lastPositionRef.current = e.touches[0].clientY;
-    }
-
-    console.log(
-      `${timeSlots[index].display} ${
-        newMode === "select" ? "선택 시작" : "해제 시작"
-      }`
-    );
-  };
-
-  const handleTouchMove = (e: TouchEvent) => {
-    console.log("touch move");
-    if (!touchStarted || !timeTableRef.current) return;
-
-    const touch = e.touches[0];
-    updateDragDirection(touch.clientY);
-
-    const element = document.elementFromPoint(touch.clientX, touch.clientY);
-    if (element?.getAttribute("data-index")) {
-      const index = parseInt(element.getAttribute("data-index") || "0", 10);
-      setCurrentIndex(index);
-
-      // 터치 위치에 따른 상대적 Y 위치 계산
-      const relY = calculateRelativeYPosition(touch.clientY, index);
-      setRelativeYPosition(relY);
-    }
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent | TouchEvent) => {
-    console.log("touch end");
-
-    // 클릭(탭) 동작 감지
-    if (
-      touchStarted &&
-      dragStart !== null &&
-      currentIndex !== null &&
-      dragStart === currentIndex
-    ) {
-      toggleSlot(dragStart);
-    }
-
-    setTouchStarted(false);
-    setDragStart(null);
-    setCurrentIndex(null);
-    setSelectionMode(null);
-    prevRangeRef.current = null;
-    setDragDirection(null);
-    lastPositionRef.current = null;
-
-    // 터치 이벤트 플래그 리셋 (일정 시간 후)
-    touchTimeoutRef.current = setTimeout(() => {
-      isTouchEventRef.current = false;
-    }, 500); // 500ms 동안 마우스 이벤트 무시
-  };
-
   // 전역 이벤트 리스너 등록
   useEffect(() => {
     const handleGlobalMouseUp = (e: MouseEvent) => {
@@ -328,13 +520,24 @@ export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
     const touchMoveHandler = (e: TouchEvent) => {
       if (touchStarted) {
         e.preventDefault();
-        handleTouchMove(e);
+
+        const touch = e.touches[0];
+        updateDragDirection(touch.clientY);
+
+        const element = document.elementFromPoint(touch.clientX, touch.clientY);
+        if (element?.getAttribute("data-index")) {
+          const index = parseInt(element.getAttribute("data-index") || "0", 10);
+          setCurrentIndex(index);
+
+          const relY = calculateRelativeYPosition(touch.clientY, index);
+          setRelativeYPosition(relY);
+        }
       }
     };
 
     const touchEndHandler = (e: TouchEvent) => {
       if (touchStarted) {
-        handleTouchEnd(e);
+        handleTouchEnd(e as any);
       }
     };
 
@@ -355,12 +558,18 @@ export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
       }
       document.removeEventListener("touchend", touchEndHandler);
 
-      // 타임아웃 클리어
       if (touchTimeoutRef.current) {
         clearTimeout(touchTimeoutRef.current);
       }
     };
-  }, [isDragging, touchStarted]);
+  }, [
+    isDragging,
+    touchStarted,
+    handleMouseUp,
+    updateDragDirection,
+    calculateRelativeYPosition,
+    handleTouchEnd,
+  ]);
 
   // 컴포넌트 언마운트시 타임아웃 클리어
   useEffect(() => {
@@ -371,123 +580,10 @@ export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
     };
   }, []);
 
-  // 슬롯 클래스 계산 함수
-  const getSlotClassName = (index: number, isSelected: boolean) => {
-    // 현재 드래그 범위인지 확인 (선택 표시를 위해 유지)
-    const isInDragRange =
-      dragStart !== null &&
-      currentIndex !== null &&
-      index >= Math.min(dragStart, currentIndex) &&
-      index <= Math.max(dragStart, currentIndex);
-
-    // 현재 마우스/터치가 위치한 슬롯인지 확인 (쫀득한 효과용)
-    const isCurrentSlot = currentIndex === index;
-
-    // 효과 적용을 위한 클래스 (실제 효과는 인라인 스타일로 적용)
-    const effectClass =
-      (isDragging || touchStarted) && currentIndex === index
-        ? "elastic-effect"
-        : "";
-
-    // 기본 클래스 반환
-    return `w-full py-3 flex flex-col items-center justify-center 
-      ${
-        isSelected
-          ? "bg-lime-400 text-black font-medium"
-          : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
-      }
-      rounded-md cursor-pointer transition-all duration-100 ease-in-out ${effectClass}
-      shadow-sm border-0`;
-  };
-
-  // 타임슬롯을 두 열로 균등하게 분할
-  const slotCount = timeSlots.length;
-  const halfLength = Math.floor(slotCount / 2);
-  const leftColumn = timeSlots.slice(0, halfLength);
-  const rightColumn = timeSlots.slice(halfLength);
-
-  // 현재 마우스/터치의 슬롯 내 상대적 Y 위치 (-1.0 ~ 1.0, 중앙이 0)
-  // 위쪽으로 갈수록 -1에 가까워지고, 아래쪽으로 갈수록 1에 가까워짐
-  const [relativeYPosition, setRelativeYPosition] = useState<number>(0);
-
-  // 슬롯 요소 refs 저장 배열
-  const slotRefs = useRef<(HTMLDivElement | null)[]>([]);
-
-  // 초기화 시 슬롯 개수만큼 ref 배열 생성
+  // 슬롯 ref 초기화
   useEffect(() => {
-    slotRefs.current = Array(timeSlots.length).fill(null);
-  }, [timeSlots.length]);
-
-  // 마우스/터치 위치에 따른 상대적 Y 위치 계산 함수
-  const calculateRelativeYPosition = (clientY: number, index: number) => {
-    const slotElement = slotRefs.current[index];
-    if (!slotElement) return 0;
-
-    const rect = slotElement.getBoundingClientRect();
-    const slotMiddleY = rect.top + rect.height / 2;
-
-    // 슬롯 중앙에서 얼마나 떨어져 있는지 계산 (-1 ~ 1)
-    // 위쪽은 음수, 아래쪽은 양수
-    const relY = (clientY - slotMiddleY) / (rect.height / 2);
-
-    // 값 범위 제한 (-1 ~ 1)
-    return Math.max(-1, Math.min(1, relY));
-  };
-
-  // 슬롯 스타일 계산 함수 수정
-  const getSlotStyle = (index: number, isSelected: boolean) => {
-    const isCurrentSlot = currentIndex === index;
-    let style: React.CSSProperties = {};
-
-    if ((isDragging || touchStarted) && isCurrentSlot) {
-      // 세로 스케일 - 선형 변화 (0.95 ~ 1.1)
-      const yScaleFactor = 0.95 + Math.abs(relativeYPosition) * 0.15;
-
-      // 가로 스케일은 세로와 반비례 (1.05 ~ 0.9)
-      const xScaleFactor = 1.05 - Math.abs(relativeYPosition) * 0.15;
-
-      // 변환 적용 - 부드러운 탄성 효과 위해 변경
-      style.transform = `scaleY(${yScaleFactor.toFixed(
-        3
-      )}) scaleX(${xScaleFactor.toFixed(3)})`;
-
-      // 드래그 방향에 따른 미세한 이동 추가
-      if (dragDirection === "up") {
-        style.transform += " translateY(-2px)";
-      } else if (dragDirection === "down") {
-        style.transform += " translateY(2px)";
-      }
-
-      // 트랜지션 설정 개선
-      style.transition = "transform 80ms cubic-bezier(0.25, 0.1, 0.25, 1.5)";
-    }
-
-    return style;
-  };
-
-  // handleMouseMove 함수 추가 - handleMouseEnter와 비슷하지만 현재 슬롯 내에서의 이동 처리
-  const handleMouseMove = (index: number, e: React.MouseEvent) => {
-    // 터치 이벤트에 의해 트리거된 마우스 이벤트인지 확인
-    if (isTouchEventRef.current) return;
-
-    // 현재 드래그 중이고 현재 슬롯에 있을 때만 처리
-    if (isDragging && currentIndex === index) {
-      // 마우스 위치에 따른 상대적 Y 위치 계산
-      const relY = calculateRelativeYPosition(e.clientY, index);
-      setRelativeYPosition(relY);
-
-      // 드래그 방향 업데이트
-      updateDragDirection(e.clientY);
-    }
-  };
-
-  // 슬롯 ref 초기화 개선
-  // timeSlots 배열이 변경될 때마다 초기화
-  useEffect(() => {
-    // 적절한 크기로 배열 새로 생성 (기존 요소 유지)
     const newRefs = Array(timeSlots.length).fill(null);
 
-    // 기존 refs 복사 (배열 크기가 달라졌을 경우 대비)
     if (slotRefs.current.length > 0) {
       slotRefs.current.forEach((ref, idx) => {
         if (idx < newRefs.length) {
@@ -499,61 +595,53 @@ export default function TimeTable({ meetingId, dateId }: TimeTableProps) {
     slotRefs.current = newRefs;
   }, [timeSlots.length]);
 
-  // 안전한 ref 할당 함수 추가
-  const setSlotRef = (index: number, element: HTMLDivElement | null) => {
-    if (index >= 0 && index < timeSlots.length) {
-      slotRefs.current[index] = element;
-    }
-  };
+  // 안전한 ref 할당 함수
+  const setSlotRef = useCallback(
+    (index: number, element: HTMLDivElement | null) => {
+      if (index >= 0 && index < timeSlots.length) {
+        slotRefs.current[index] = element;
+      }
+    },
+    [timeSlots.length]
+  );
 
-  // JSX 수정 - ref와 mousemove 이벤트 추가
+  // 왼쪽 열과 오른쪽 열 시간 정의
+  const leftHours = [9, 10, 11, 12, 13, 14, 15];
+  const rightHours = [16, 17, 18, 19, 20, 21, 22];
+
   return (
     <div className="w-full">
-      <div ref={timeTableRef} className="grid grid-cols-2 gap-4">
-        {/* 왼쪽 열 */}
-        <div className="space-y-3">
-          {leftColumn.map((slot, index) => (
-            <div
-              key={slot.id}
-              ref={(el) => setSlotRef(index, el)}
-              data-index={index}
-              className={getSlotClassName(index, slot.isSelected)}
-              style={getSlotStyle(index, slot.isSelected)}
-              onMouseDown={(e) => handleMouseDown(index, e)}
-              onMouseEnter={(e) => handleMouseEnter(index, e)}
-              onMouseMove={(e) => handleMouseMove(index, e)}
-              onMouseUp={(e) => handleMouseUp(e)}
-              onTouchStart={(e) => handleTouchStart(index, e)}
-              onTouchEnd={(e) => handleTouchEnd(e)}
-            >
-              <span className="text-base font-medium select-none">
-                {slot.display}
-              </span>
-            </div>
-          ))}
-        </div>
+      <div ref={timeTableRef} className="max-w-4xl mx-auto">
+        <div className="grid grid-cols-2 gap-8">
+          {/* 왼쪽 열 (9시~15시) */}
+          <TimeColumn
+            hours={leftHours}
+            timeSlots={timeSlots}
+            getSlotClassName={getSlotClassName}
+            getSlotStyle={getSlotStyle}
+            setSlotRef={setSlotRef}
+            handleMouseDown={handleMouseDown}
+            handleMouseEnter={handleMouseEnter}
+            handleMouseMove={handleMouseMove}
+            handleMouseUp={handleMouseUp}
+            handleTouchStart={handleTouchStart}
+            handleTouchEnd={handleTouchEnd}
+          />
 
-        {/* 오른쪽 열 */}
-        <div className="space-y-3">
-          {rightColumn.map((slot, index) => (
-            <div
-              key={slot.id}
-              ref={(el) => setSlotRef(index + halfLength, el)}
-              data-index={index + halfLength}
-              className={getSlotClassName(index + halfLength, slot.isSelected)}
-              style={getSlotStyle(index + halfLength, slot.isSelected)}
-              onMouseDown={(e) => handleMouseDown(index + halfLength, e)}
-              onMouseEnter={(e) => handleMouseEnter(index + halfLength, e)}
-              onMouseMove={(e) => handleMouseMove(index + halfLength, e)}
-              onMouseUp={(e) => handleMouseUp(e)}
-              onTouchStart={(e) => handleTouchStart(index + halfLength, e)}
-              onTouchEnd={(e) => handleTouchEnd(e)}
-            >
-              <span className="text-base font-medium select-none">
-                {slot.display}
-              </span>
-            </div>
-          ))}
+          {/* 오른쪽 열 (16시~22시) */}
+          <TimeColumn
+            hours={rightHours}
+            timeSlots={timeSlots}
+            getSlotClassName={getSlotClassName}
+            getSlotStyle={getSlotStyle}
+            setSlotRef={setSlotRef}
+            handleMouseDown={handleMouseDown}
+            handleMouseEnter={handleMouseEnter}
+            handleMouseMove={handleMouseMove}
+            handleMouseUp={handleMouseUp}
+            handleTouchStart={handleTouchStart}
+            handleTouchEnd={handleTouchEnd}
+          />
         </div>
       </div>
     </div>
