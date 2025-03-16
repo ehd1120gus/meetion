@@ -3,9 +3,10 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
-import { getAvailableDates } from "@/lib/firebase/db";
 import useEmblaCarousel from "embla-carousel-react";
 import { EmblaCarouselType, EmblaEventType } from "embla-carousel";
+import { getAvailableDates } from "@/lib/firebase/db";
+import TimeTable from "@/components/time-table";
 
 // 트윈 효과를 위한 상수 정의
 const TWEEN_FACTOR_BASE = 0.52;
@@ -22,7 +23,7 @@ type DateItem = {
   isAvailable: boolean;
 };
 
-interface DaySelectorProps {
+interface DateTimeCarouselProps {
   meetingId: string;
   onDateSelect: (dateId: string, formattedDate: string) => void;
 }
@@ -77,10 +78,10 @@ const DotButton = (props: { onClick: () => void; className: string }) => {
   );
 };
 
-export default function DaySelector({
+export default function DateTimeCarousel({
   meetingId,
   onDateSelect,
-}: DaySelectorProps) {
+}: DateTimeCarouselProps) {
   const [dates, setDates] = useState<DateItem[]>([]);
   const [selectedDateId, setSelectedDateId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -92,7 +93,7 @@ export default function DaySelector({
 
   // Embla Carousel 훅 설정
   const [emblaRef, emblaApi] = useEmblaCarousel({
-    loop: true,
+    loop: false,
     align: "center",
     skipSnaps: false,
     dragFree: false,
@@ -145,11 +146,8 @@ export default function DaySelector({
             });
           }
 
-          const tweenValue =
-            0.5 * (1 - Math.abs(diffToTarget * tweenFactor.current));
-          const scale = (
-            0.5 + numberWithinRange(tweenValue, 0, 0.5)
-          ).toString();
+          const tweenValue = 1 - Math.abs(diffToTarget * tweenFactor.current);
+          const scale = numberWithinRange(tweenValue, 0.85, 1).toString();
           const tweenNode = tweenNodes.current[slideIndex];
 
           if (tweenNode) {
@@ -191,27 +189,19 @@ export default function DaySelector({
     (dateId: string, formattedDate: string) => {
       setSelectedDateId(dateId);
       onDateSelect(dateId, formattedDate);
-
-      // 선택한 날짜에 해당하는 슬라이드로 이동
-      if (emblaApi && dates.length > 0) {
-        const index = dates.findIndex((date) => date.id === dateId);
-        if (index !== -1) {
-          emblaApi.scrollTo(index);
-        }
-      }
     },
-    [onDateSelect, emblaApi, dates]
+    [onDateSelect]
   );
 
   // 슬라이드 변경 시 날짜 선택 동기화
-  //   useEffect(() => {
-  //     if (emblaApi && dates.length > 0 && selectedIndex !== undefined) {
-  //       const currentDate = dates[selectedIndex];
-  //       if (currentDate && currentDate.id !== selectedDateId) {
-  //         handleDateSelect(currentDate.id, currentDate.formattedDate);
-  //       }
-  //     }
-  //   }, [selectedIndex, dates, emblaApi, handleDateSelect, selectedDateId]);
+  useEffect(() => {
+    if (emblaApi && dates.length > 0 && selectedIndex !== undefined) {
+      const currentDate = dates[selectedIndex];
+      if (currentDate && currentDate.id !== selectedDateId) {
+        handleDateSelect(currentDate.id, currentDate.formattedDate);
+      }
+    }
+  }, [selectedIndex, dates, emblaApi, handleDateSelect, selectedDateId]);
 
   // 날짜 데이터 로딩
   useEffect(() => {
@@ -253,45 +243,47 @@ export default function DaySelector({
 
   return (
     <div className="w-full py-6">
-      <h2 className="text-xl font-semibold mb-4">날짜 선택</h2>
-
-      {/* Embla Carousel 구현 */}
-      <div className="max-w-xl mx-auto">
+      <div className="max-w-4xl mx-auto">
+        {/* Embla Carousel 구현 */}
         <div className="overflow-hidden" ref={emblaRef}>
           <div className="flex touch-pan-y">
             {dates.map((date, index) => {
               const isSelected = selectedDateId === date.id;
 
               return (
-                <div key={date.id} className="flex-[0_0_55%] min-w-0 pl-4">
+                <div key={date.id} className="flex-[0_0_100%] min-w-0">
+                  {/* 날짜 헤더 */}
                   <div
-                    className="tween-item flex flex-col items-center justify-center rounded-xl
+                    className={`
+                      tween-item mx-auto max-w-[160px] mb-6
+                      flex flex-col items-center justify-center rounded-xl
                       shadow-sm transition-all duration-300 ease-out
-                      font-medium cursor-pointer h-40"
-                    onClick={() =>
-                      handleDateSelect(date.id, date.formattedDate)
-                    }
+                      font-medium cursor-pointer h-24 py-3
+                      ${
+                        isSelected
+                          ? "bg-lime-400 border-2 border-lime-500 text-black"
+                          : "bg-zinc-900 border-2 border-zinc-800 text-zinc-400"
+                      }
+                    `}
                   >
-                    <div
-                      className={`
-                        w-full h-full flex flex-col items-center justify-center rounded-xl
-                        ${
-                          isSelected
-                            ? "bg-zinc-900 border-2 border-zinc-800 text-zinc-400 hover:bg-zinc-800"
-                            : "bg-zinc-900 border-2 border-zinc-800 text-zinc-400 hover:bg-zinc-800"
-                        }
-                      `}
-                    >
-                      <div className="text mb-1">
-                        {format(date.date, "Y년 M월", { locale: ko })}
-                      </div>
-                      <div className={`font-bold text-5xl`}>
-                        {format(date.date, "d", { locale: ko })}
-                      </div>
-                      <div className="mt-1">
-                        {format(date.date, "E", { locale: ko })}요일
-                      </div>
+                    <div className="text-sm">
+                      {format(date.date, "M월", { locale: ko })}
                     </div>
+                    <div
+                      className={`font-bold ${
+                        isSelected ? "text-3xl" : "text-2xl"
+                      }`}
+                    >
+                      {format(date.date, "d", { locale: ko })}
+                    </div>
+                    <div className="text-sm">
+                      {format(date.date, "E", { locale: ko })}요일
+                    </div>
+                  </div>
+
+                  {/* 시간표 컴포넌트 */}
+                  <div className="mt-4">
+                    <TimeTable meetingId={meetingId} dateId={date.id} />
                   </div>
                 </div>
               );
@@ -300,19 +292,19 @@ export default function DaySelector({
         </div>
 
         {/* Dot 버튼 네비게이션 */}
-        <div className="flex justify-end mt-4">
+        <div className="flex justify-center mt-8">
           <div className="flex flex-wrap gap-2">
             {scrollSnaps.map((_, index) => (
               <DotButton
                 key={index}
                 onClick={() => onDotButtonClick(index)}
                 className={`
-                  w-8 h-8 flex items-center justify-center rounded-full relative
-                  after:content-[''] after:w-4 after:h-4 after:rounded-full 
+                  w-10 h-10 flex items-center justify-center rounded-full relative
+                  after:content-[''] after:w-5 after:h-5 after:rounded-full 
                   ${
                     index === selectedIndex
-                      ? "after:border-2 after:border-lime-400"
-                      : "after:border-2 after:border-zinc-800"
+                      ? "after:bg-lime-400 after:border-2 after:border-lime-500"
+                      : "after:border-2 after:border-zinc-600"
                   }
                 `}
               />
