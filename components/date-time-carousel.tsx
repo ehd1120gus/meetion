@@ -6,7 +6,7 @@ import { ko } from "date-fns/locale";
 import useEmblaCarousel from "embla-carousel-react";
 import { EmblaCarouselType, EmblaEventType } from "embla-carousel";
 import { getAvailableDates } from "@/lib/firebase/db";
-import TimeTable from "@/components/time-table";
+import TimeTable from "./time-table";
 
 // 트윈 효과를 위한 상수 정의
 const TWEEN_FACTOR_BASE = 0.52;
@@ -146,12 +146,18 @@ export default function DateTimeCarousel({
             });
           }
 
+          // 스케일 효과를 더 극적으로 조정 (0.7에서 1.0 사이)
           const tweenValue = 1 - Math.abs(diffToTarget * tweenFactor.current);
-          const scale = numberWithinRange(tweenValue, 0.85, 1).toString();
+          const scale = numberWithinRange(tweenValue, 0.7, 1).toString();
+          const opacity = numberWithinRange(tweenValue, 0.5, 1).toString();
           const tweenNode = tweenNodes.current[slideIndex];
 
           if (tweenNode) {
             tweenNode.style.transform = `scale(${scale})`;
+            tweenNode.style.opacity = opacity;
+
+            // Z-index도 조정하여 선택된 슬라이드가 위에 오도록 함
+            tweenNode.style.zIndex = Math.round(tweenValue * 10).toString();
           }
         });
       });
@@ -245,45 +251,43 @@ export default function DateTimeCarousel({
     <div className="w-full py-6">
       <div className="max-w-4xl mx-auto">
         {/* Embla Carousel 구현 */}
-        <div className="overflow-hidden" ref={emblaRef}>
-          <div className="flex touch-pan-y">
+        <div className="overflow-visible" ref={emblaRef}>
+          <div className="flex touch-pan-x">
             {dates.map((date, index) => {
               const isSelected = selectedDateId === date.id;
 
               return (
-                <div key={date.id} className="flex-[0_0_100%] min-w-0">
-                  {/* 날짜 헤더 */}
-                  <div
-                    className={`
-                      tween-item mx-auto max-w-[160px] mb-6
-                      flex flex-col items-center justify-center rounded-xl
-                      shadow-sm transition-all duration-300 ease-out
-                      font-medium cursor-pointer h-24 py-3
-                      ${
-                        isSelected
-                          ? "bg-lime-400 border-2 border-lime-500 text-black"
-                          : "bg-zinc-900 border-2 border-zinc-800 text-zinc-400"
-                      }
-                    `}
-                  >
-                    <div className="text-sm">
-                      {format(date.date, "M월", { locale: ko })}
-                    </div>
+                <div key={date.id} className="flex-[0_0_85%] min-w-0 px-2">
+                  {/* 전체 카드를 tween 대상으로 변경 */}
+                  <div className="tween-item transition-all duration-300 ease-out">
+                    {/* 통합 배경 컨테이너 - 날짜와 시간표를 함께 감싸는 배경 */}
                     <div
-                      className={`font-bold ${
-                        isSelected ? "text-3xl" : "text-2xl"
-                      }`}
+                      className={`
+                        bg-zinc-900/50 rounded-xl p-5 shadow-lg 
+                        transition-all duration-300 ease-out
+                      `}
                     >
-                      {format(date.date, "d", { locale: ko })}
-                    </div>
-                    <div className="text-sm">
-                      {format(date.date, "E", { locale: ko })}요일
-                    </div>
-                  </div>
+                      {/* 날짜 헤더 - 한 줄 큰 글씨로 변경 */}
+                      <div
+                        className={`
+                            mb-6 py-3 px-4 rounded-lg
+                            flex items-center
+                        `}
+                      >
+                        <h2
+                          className={`
+                            font-bold text-left w-full text-2xl text-zinc-300
+                            `}
+                        >
+                          {format(date.date, "M월 d일 EEEE", { locale: ko })}
+                        </h2>
+                      </div>
 
-                  {/* 시간표 컴포넌트 */}
-                  <div className="mt-4">
-                    <TimeTable meetingId={meetingId} dateId={date.id} />
+                      {/* 시간표 컴포넌트 */}
+                      <div className="mt-2">
+                        <TimeTable meetingId={meetingId} dateId={date.id} />
+                      </div>
+                    </div>
                   </div>
                 </div>
               );
@@ -291,7 +295,7 @@ export default function DateTimeCarousel({
           </div>
         </div>
 
-        {/* Dot 버튼 네비게이션 */}
+        {/* Dot 버튼 네비게이션과 기타 부분은 그대로 유지 */}
         <div className="flex justify-center mt-8">
           <div className="flex flex-wrap gap-2">
             {scrollSnaps.map((_, index) => (
@@ -299,8 +303,8 @@ export default function DateTimeCarousel({
                 key={index}
                 onClick={() => onDotButtonClick(index)}
                 className={`
-                  w-10 h-10 flex items-center justify-center rounded-full relative
-                  after:content-[''] after:w-5 after:h-5 after:rounded-full 
+                  w-8 h-8 flex items-center justify-center rounded-full relative
+                  after:content-[''] after:w-4 after:h-4 after:rounded-full 
                   ${
                     index === selectedIndex
                       ? "after:bg-lime-400 after:border-2 after:border-lime-500"
@@ -311,6 +315,13 @@ export default function DateTimeCarousel({
             ))}
           </div>
         </div>
+      </div>
+
+      {/* 스크롤 안내 표시 */}
+      <div className="flex justify-center mt-4">
+        <span className="text-xs text-zinc-500">
+          ← 좌우로 스와이프하여 다른 날짜 보기 →
+        </span>
       </div>
     </div>
   );

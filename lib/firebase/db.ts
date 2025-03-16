@@ -6,6 +6,7 @@ import {
   Timestamp,
   query,
   where,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "./config";
 import { format, parse, isValid } from "date-fns";
@@ -95,5 +96,69 @@ export async function addMeeting(meetingId: string, dates: Date[]) {
   } catch (error) {
     console.error("미팅 생성 오류:", error);
     throw error;
+  }
+}
+
+// 사용자 시간 선택 저장
+export async function saveUserTimeSelections(
+  meetingId: string,
+  dateId: string,
+  userData: {
+    name: string;
+    selectedTimes: string[]; // 선택한 시간 슬롯 ID 배열
+  }
+) {
+  try {
+    // 고유 참여자 ID 생성 (이름 + 타임스탬프)
+    const participantId = `${userData.name.replace(/\s+/g, "-")}-${Date.now()}`;
+
+    const participantRef = doc(
+      db,
+      "meetings",
+      meetingId,
+      "dates",
+      dateId,
+      "participants",
+      participantId
+    );
+
+    await setDoc(participantRef, {
+      name: userData.name,
+      selectedTimes: userData.selectedTimes,
+      createdAt: serverTimestamp(),
+    });
+
+    return { success: true, participantId };
+  } catch (error) {
+    console.error("Error saving user selections:", error);
+    return { success: false, error };
+  }
+}
+
+// 특정 날짜의 참여자 및 시간 선택 정보 조회
+export async function getParticipantSelections(
+  meetingId: string,
+  dateId: string
+) {
+  try {
+    const participantsRef = collection(
+      db,
+      "meetings",
+      meetingId,
+      "dates",
+      dateId,
+      "participants"
+    );
+
+    const participantsSnap = await getDocs(participantsRef);
+    const participants = participantsSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    return participants;
+  } catch (error) {
+    console.error("Error getting participant selections:", error);
+    return [];
   }
 }
